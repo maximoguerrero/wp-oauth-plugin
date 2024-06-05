@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: OAuth2.0 SSO
+Plugin Name: WP OAuth2.0 SSO Client
 Description: A plugin to enable OAuth2 Single Sign-On for WordPress using the PHP League's OAuth2 Client. Any generic OAuth2 provider can be used.
 Version: 1.0
 Author: Maximo Guerrero
