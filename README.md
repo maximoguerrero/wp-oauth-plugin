@@ -1,4 +1,4 @@
-# Project Name
+# WP oAuth2.0 SSO Client
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
