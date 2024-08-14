@@ -70,14 +70,15 @@ function oauth2_sso_handle_login()
                     wp_die('Failed to create a new user.');
                 }
                 $user = get_user_by('id', $user_id);
-            }
 
-            // Update user meta with additional information.
-            $wp_user_info = [
-                'ID' => $user->ID,
-                'role' => 'subscriber' // Set the role to 'subscriber'
-            ];
-            wp_update_user($wp_user_info);
+                // Update user meta with additional information.
+                $wp_user_info = [
+                    'ID' => $user->ID,
+                    'role' => 'subscriber' // Set the role to 'subscriber'
+                ];
+                wp_update_user($wp_user_info);
+                
+            }
 
             foreach ($attributes as $attribute) {
                 //($attribute);
