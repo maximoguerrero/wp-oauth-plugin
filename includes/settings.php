@@ -14,6 +14,7 @@ function oauth2_sso_register_settings()
     register_setting('oauth2_sso_settings', 'oauth2_sso_user_info_endpoint');
     register_setting('oauth2_sso_settings', 'oauth2_sso_wp_attributes', 'oauth2_sso_sanitize_attributes');
     register_setting('oauth2_sso_settings', 'oauth2_sso_oauth_attributes', 'oauth2_sso_sanitize_attributes');
+    register_setting('oauth2_sso_settings', 'oauth2_sso_oauth_login_text');
 }
 function oauth2_sso_sanitize_attributes($attributes)
 {
@@ -75,6 +76,10 @@ function oauth2_sso_settings_page()
                 <tr valign="top">
                     <th scope="row">User Info Endpoint *</th>
                     <td><input required type="text" name="oauth2_sso_user_info_endpoint" value="<?php echo esc_attr(get_option('oauth2_sso_user_info_endpoint')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row">Login Button Text</th>
+                    <td><input  type="text" name="oauth2_sso_oauth_login_text" value="<?php echo esc_attr(get_option('oauth2_sso_oauth_login_text')); ?>" /></td>
                 </tr>
             </table>
             <h2>Scope</h2>

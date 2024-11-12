@@ -19,9 +19,6 @@ function oauth2_sso_handle_login()
     }, $oauth2_sso_wp_attributes, $oauth2_sso_oauth_attributes);
 
 
-    if (isset($_GET['redirect_uri'])){
-        $redirect_uri = $_GET['redirect_uri'];
-    }
 
     $provider = new GenericProvider([
         'clientId'                => $client_id,
@@ -37,6 +34,11 @@ function oauth2_sso_handle_login()
         $scopes = ['openid', 'profile',  'email']; // Update scopes here
         $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
         setcookie('oauth2state', $provider->getState(), time() + 3600, '/');
+        
+        if (isset($_GET['redirect_uri'])){
+            $redirect_uri = $_GET['redirect_uri'];
+            setcookie('oauth2redirect',  $redirect_uri , time() + 3600, '/');
+        }
 
         //wp_redirect($authorizationUrl);
         header('Location: ' . $authorizationUrl, true, 302);
@@ -94,7 +96,8 @@ function oauth2_sso_handle_login()
 
             wp_set_current_user($user->ID);
             wp_set_auth_cookie($user->ID);
-            wp_redirect(home_url());
+            $redirect = $_COOKIE['oauth2redirect'] ?? home_url();
+            wp_redirect($redirect);
             exit;
         } catch (\League\OAuth2\Client\Provider\Exception\IdentityProviderException $e) {
             wp_die('Error retrieving access token: ' . $e->getMessage());
