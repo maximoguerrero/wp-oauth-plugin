@@ -19,6 +19,9 @@ function oauth2_sso_handle_login()
     }, $oauth2_sso_wp_attributes, $oauth2_sso_oauth_attributes);
 
 
+    if (isset($_GET['redirect_uri'])){
+        $redirect_uri = $_GET['redirect_uri'];
+    }
 
     $provider = new GenericProvider([
         'clientId'                => $client_id,

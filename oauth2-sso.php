@@ -57,8 +57,11 @@ function oauth2_sso_add_login_button() {
     if (session_status() == PHP_SESSION_NONE) {
         session_start();
     }
+    // Save the 'redirect_to' query string to a variable if it exists.
+    $redirect_to = isset($_GET['redirect_to']) ? "&redirect_uri". esc_url($_GET['redirect_to']) : '';
+
     // Add a button to the login form.
-    $button_html = '<div id="oauth2SSO" style="margin:20px; clear:both; text-align:center;"><a href="?oauth2_sso='.uniqid().'" class="button button button-large">Login with OAuth2</a></div>';
+    $button_html = '<div id="oauth2SSO" style="margin:20px; clear:both; text-align:center;"><a href="?oauth2_sso='.uniqid().$redirect_to.'" class="button button button-large">Login with OAuth2</a></div>';
     echo $button_html;
 }
 
