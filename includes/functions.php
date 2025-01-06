@@ -8,6 +8,9 @@ function oauth2_sso_handle_login()
     $client_id = get_option('oauth2_sso_client_id');
     $client_secret = get_option('oauth2_sso_client_secret');
     $redirect_uri = get_option('oauth2_sso_redirect_uri');
+
+
+    
     $authorization_endpoint = get_option('oauth2_sso_authorization_endpoint');
     $token_endpoint = get_option('oauth2_sso_token_endpoint');
     $user_info_endpoint = get_option('oauth2_sso_user_info_endpoint');
@@ -35,11 +38,6 @@ function oauth2_sso_handle_login()
         $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
         setcookie('oauth2state', $provider->getState(), time() + 3600, '/');
         
-        if (isset($_GET['redirect_uri'])){
-            $redirect_uri = $_GET['redirect_uri'];
-            setcookie('oauth2redirect',  $redirect_uri , time() + 3600, '/');
-        }
-
         //wp_redirect($authorizationUrl);
         header('Location: ' . $authorizationUrl, true, 302);
         exit;
@@ -96,11 +94,15 @@ function oauth2_sso_handle_login()
 
             wp_set_current_user($user->ID);
             wp_set_auth_cookie($user->ID);
+            
             $redirect = $_COOKIE['oauth2redirect'] ?? home_url();
+            header("deepulr: " .  $_COOKIE['oauth2redirect'] );
             wp_redirect($redirect);
             exit;
         } catch (\League\OAuth2\Client\Provider\Exception\IdentityProviderException $e) {
-            wp_die('Error retrieving access token: ' . $e->getMessage());
+            // retry login 
+            header('Refresh:5; Location: ' . $redirect_uri, true);
+            wp_die('Error retrieving access token: ' . $e->getMessage());   
         }
     }
 }
