@@ -45,6 +45,10 @@ function oauth2_sso_init()
 
             // Handle the login process.
             oauth2_sso_handle_login();
+        }else if (isset($_GET['finalurl']) && $_GET['finalurl'] == 'oauth2redirect') {
+            // Redirect to the login page.
+            wp_redirect($_COOKIE['oauth2redirect']);
+            exit;
         }
     }
 }
