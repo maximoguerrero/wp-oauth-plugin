@@ -47,6 +47,8 @@ function oauth2_sso_init()
             oauth2_sso_handle_login();
         }else if (isset($_GET['finalurl']) && $_GET['finalurl'] == 'oauth2redirect') {
             // Redirect to the login page.
+            
+            setcookie('oauth2redirect', '', time() - 3600, '/');
             wp_redirect($_COOKIE['oauth2redirect']);
             exit;
         }

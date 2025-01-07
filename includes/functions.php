@@ -18,7 +18,6 @@ function oauth2_sso_handle_login()
         return ['wp_attribute' => $wp_attribute, 'oauth_attribute' => $oauth_attribute];
     }, $oauth2_sso_wp_attributes, $oauth2_sso_oauth_attributes);
 
-    $finalurl = $_COOKIE['oauth2state'] ?? "";
 
 
     $provider = new GenericProvider([
@@ -39,9 +38,7 @@ function oauth2_sso_handle_login()
 
         // Step 1: Redirect to the OAuth2 server.
         $scopes = ['openid', 'profile',  'email']; // Update scopes here
-        $authorizationUrl = $provider->getAuthorizationUrl(array(
-            "state"=> $redirect_uri
-        )) . '&scope=' . implode(' ', $scopes);
+        $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
         
 
         setcookie('oauth2state', $provider->getState(), time() + 3600, '/');
@@ -107,7 +104,10 @@ function oauth2_sso_handle_login()
 
         
         } catch (\League\OAuth2\Client\Provider\Exception\IdentityProviderException $e) {
-            // retry login 
+            // retry login
+            
+            $scopes = ['openid', 'profile',  'email']; // Update scopes here
+            $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes); 
             header('Refresh: 5; Location: ' . $authorizationUrl, true);
             wp_die('Retrying Login - Error retrieving access token: ' . $e->getMessage());
         }
