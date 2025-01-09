@@ -99,7 +99,7 @@ function oauth2_sso_handle_login()
 
             wp_set_current_user($user->ID);
             wp_set_auth_cookie($user->ID);
-            header('Location: ' . home_url() . '?finalurl=oauth2redirect'  , true, 302);
+            wp_redirect( home_url() . '?finalurl=oauth2redirect&nonce=' . wp_create_nonce('oauth2redirect'));
             exit;
 
         

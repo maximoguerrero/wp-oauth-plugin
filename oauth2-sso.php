@@ -22,8 +22,10 @@ require_once OAUTH2_SSO_PLUGIN_DIR . 'includes/functions.php';
 require_once OAUTH2_SSO_PLUGIN_DIR . 'includes/settings.php';
 
 // Add hooks.
+add_action('wp_loaded', 'require_authentication');
 add_action('init', 'oauth2_sso_init');
 add_action('admin_menu', 'oauth2_sso_admin_menu');
+
 
 
 include_once(ABSPATH . 'wp-admin/includes/plugin.php');
@@ -46,15 +48,66 @@ function oauth2_sso_init()
             // Handle the login process.
             oauth2_sso_handle_login();
         }else if (isset($_GET['finalurl']) && $_GET['finalurl'] == 'oauth2redirect') {
-            // Redirect to the login page.
             
+            // set no cache headers
+            header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+            header("Cache-Control: post-check=0, pre-check=0", false);
+            header("Pragma: no-cache");
+            
+            // Redirect to the login page.
+            $redirect_to = isset($_COOKIE['oauth2redirect']) ? $_COOKIE['oauth2redirect'] : home_url();
             setcookie('oauth2redirect', '', time() - 3600, '/');
-            wp_redirect($_COOKIE['oauth2redirect']);
+            $current_user = wp_get_current_user();
+            if ($current_user->exists()) {
+                $name = $current_user->display_name;
+            } else {
+                $name = 'Guest';
+            }
+            //wp_redirect($redirect_to);
+            ?>
+                <html>
+                    <head>
+                       
+                    </head>
+                    <body>
+                        <p style="text-align: center;">
+                            You have been logged in (<?php echo $name?>).   Redirecting to <a href="<?php echo $redirect_to; ?>"><?php echo $redirect_to; ?></a>
+                        </p>
+                        <script>
+                            setTimeout(function() {
+                                window.location.href = "<?php echo $redirect_to; ?>";
+                            }, 1000);
+                        </script>
+                    </body>
+                </html>
+            <?php
+
             exit;
         }
+
     }
+
 }
 
+function require_authentication() {
+    if ( ! is_user_logged_in() ) {
+        // redirecto to touchstone directly.
+        $redirect_uri = get_option( 'oauth2_sso_redirect_uri' );
+        if ( $redirect_uri && ! empty( $redirect_uri ) ) {
+            header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+            header("Cache-Control: post-check=0, pre-check=0", false);
+            header("Pragma: no-cache");
+            wp_redirect( $redirect_uri . '?oauth2_sso=true&redirect_uri=' . esc_url( get_current_url() ) );
+            exit;
+        }
+        wp_redirect( wp_login_url( get_current_url() ) );
+        exit;
+    }
+}
+function get_current_url() {
+    return ( isset( $_SERVER['HTTPS'] ) && 'on' === $_SERVER['HTTPS'] ? 'https' : 'http' )
+    . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+}  
 
 // Add a button to the login form.
 function oauth2_sso_add_login_button() {
