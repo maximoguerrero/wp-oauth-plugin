@@ -47,7 +47,7 @@ function oauth2_sso_init()
 
             // Handle the login process.
             oauth2_sso_handle_login();
-        }else if (isset($_GET['finalurl']) && $_GET['finalurl'] == 'oauth2redirect') {
+        }else if (isset($_GET['finalurl']) ) {
             
             // set no cache headers
             header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -56,7 +56,7 @@ function oauth2_sso_init()
             
             // Redirect to the login page.
             $redirect_to = isset($_COOKIE['oauth2redirect']) ? $_COOKIE['oauth2redirect'] : home_url();
-            setcookie('oauth2redirect', '', time() - 3600, '/');
+            //setcookie('oauth2redirect', '', time() - 3600, '/');
             $current_user = wp_get_current_user();
             if ($current_user->exists()) {
                 $name = $current_user->display_name;
@@ -75,7 +75,7 @@ function oauth2_sso_init()
                         </p>
                         <script>
                             setTimeout(function() {
-                                window.location.href = "<?php echo $redirect_to; ?>";
+                                window.location.href = "<?php echo $redirect_to .'?nocache='.time(); ?>";
                             }, 1000);
                         </script>
                     </body>
@@ -84,7 +84,13 @@ function oauth2_sso_init()
 
             exit;
         }
-
+        
+        if (is_front_page() || is_home()) {
+            // Set no cache headers for the root website.
+            header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+            header("Cache-Control: post-check=0, pre-check=0", false);
+            header("Pragma: no-cache");
+        }
     }
 
 }
