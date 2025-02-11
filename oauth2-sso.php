@@ -56,6 +56,16 @@ function oauth2_sso_init()
             
             // Redirect to the login page.
             $redirect_to = isset($_COOKIE['oauth2redirect']) ? $_COOKIE['oauth2redirect'] : home_url();
+
+
+            // Append no cache param with time() and uuid.
+            $uuid = uniqid();
+            $parsed_url = parse_url($redirect_to);
+            $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
+            parse_str($query, $query_params);
+            $query_params['nocache'] = time() . '_' . $uuid;
+            $redirect_to = $parsed_url['scheme'] . '://' . $parsed_url['host'] . $parsed_url['path'] . '?' . http_build_query($query_params);
+
             //setcookie('oauth2redirect', '', time() - 3600, '/');
             $current_user = wp_get_current_user();
             if ($current_user->exists()) {
@@ -63,6 +73,8 @@ function oauth2_sso_init()
             } else {
                 $name = 'Guest';
             }
+
+            setcookie('oauth2redirect', '', time() - 3600, '/');
             //wp_redirect($redirect_to);
             ?>
                 <html>
@@ -75,7 +87,7 @@ function oauth2_sso_init()
                         </p>
                         <script>
                             setTimeout(function() {
-                                window.location.href = "<?php echo $redirect_to .'?nocache='.time(); ?>";
+                                window.location.href = "<?php echo $redirect_to ?>";
                             }, 1000);
                         </script>
                     </body>
@@ -111,8 +123,18 @@ function require_authentication() {
     }
 }
 function get_current_url() {
-    return ( isset( $_SERVER['HTTPS'] ) && 'on' === $_SERVER['HTTPS'] ? 'https' : 'http' )
+    $url = ( isset( $_SERVER['HTTPS'] ) && 'on' === $_SERVER['HTTPS'] ? 'https' : 'http' )
     . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+    $url = strtok($url, '?');
+
+    // Add query parameters if they exist.
+    if (!empty($_GET)) {
+        $query_params = http_build_query($_GET);
+        $url .= '?' . $query_params;
+    }
+    
+
+    return $url;
 }  
 
 // Add a button to the login form.
