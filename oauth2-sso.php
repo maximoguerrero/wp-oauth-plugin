@@ -73,8 +73,6 @@ function oauth2_sso_init()
             } else {
                 $name = 'Guest';
             }
-
-            setcookie('oauth2redirect', '', time() - 3600, '/');
             //wp_redirect($redirect_to);
             ?>
                 <html>
@@ -126,7 +124,7 @@ function get_current_url() {
     $url = ( isset( $_SERVER['HTTPS'] ) && 'on' === $_SERVER['HTTPS'] ? 'https' : 'http' )
     . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
     $url = strtok($url, '?');
-
+    
     // Add query parameters if they exist.
     if (!empty($_GET)) {
         $query_params = http_build_query($_GET);
