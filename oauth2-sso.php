@@ -11,6 +11,11 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Exit if running via WP-CLI.
+if (defined('WP_CLI') && WP_CLI) {
+    return;
+}
+
 
 // Define constants.
 define('OAUTH2_SSO_PLUGIN_URL', plugin_dir_url(__FILE__));
