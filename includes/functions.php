@@ -2,8 +2,44 @@
 
 use League\OAuth2\Client\Provider\GenericProvider;
 
+
+function get_auth_cookie_name()
+{
+    return 'wordpress_oauth2_sso_user';
+}
+function set_oauth_user_cookie()
+{
+    
+    if (!isset($_COOKIE[get_auth_cookie_name()])) {
+        // Generate a new unique ID and set the cookie if it doesn't exist.
+        $unique_id = bin2hex(random_bytes(16));
+        setcookie(get_auth_cookie_name(), $unique_id, time() + (86400 * 30), '/');
+        $_COOKIE[get_auth_cookie_name()] = $unique_id; // Make immediately available
+        return $unique_id;
+    }
+    return $_COOKIE[get_auth_cookie_name()]; // Return existing cookie value
+}
+
+function clear_oauth_user_cookie()
+{
+    if (isset($_COOKIE[get_auth_cookie_name()])) {
+        setcookie(get_auth_cookie_name(), '', time() - 3600); // Expire the cookie
+    }
+}
+
+function get_oauth_user_cookie()
+{
+    if (!isset($_COOKIE[get_auth_cookie_name()])) {
+        return set_oauth_user_cookie(); // Set cookie if it doesn't exist
+    }
+    return $_COOKIE[get_auth_cookie_name()]; // Return existing cookie
+}
+
 function oauth2_sso_handle_login()
 {
+    // Generate a unique identifier for the visitor.
+    $unique_id = get_oauth_user_cookie();
+
     // OAuth2 credentials.
     $client_id = get_option('oauth2_sso_client_id');
     $client_secret = get_option('oauth2_sso_client_secret');
@@ -18,8 +54,6 @@ function oauth2_sso_handle_login()
         return ['wp_attribute' => $wp_attribute, 'oauth_attribute' => $oauth_attribute];
     }, $oauth2_sso_wp_attributes, $oauth2_sso_oauth_attributes);
 
-
-
     $provider = new GenericProvider([
         'clientId'                => $client_id,
         'clientSecret'            => $client_secret,
@@ -30,28 +64,33 @@ function oauth2_sso_handle_login()
     ]);
 
     if (!isset($_GET['code']) && !isset($_GET['error'])) {
-        $redirect_uri = "";
-        if (isset($_GET['redirect_uri'])) {
-            $redirect_uri = $_GET['redirect_uri'];
-            setcookie('oauth2redirect', $redirect_uri, time() + 3600, '/');
-        }
 
-        // Step 1: Redirect to the OAuth2 server.
-        $scopes = ['openid', 'profile',  'email']; // Update scopes here
-        $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
         
+        
+        if (isset($_GET['redirect_uri'])) {
+            update_option('oauth2redirect_' . $unique_id, $_GET['redirect_uri']);
+        }
+        // Step 1: Redirect to the OAuth2 server.
+        $scopes = ['openid', 'profile', 'email']; // Update scopes here
+        $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
 
-        setcookie('oauth2state', $provider->getState(), time() + 3600, '/');
-
-
+        update_option('oauth2state_' . $unique_id, $provider->getState());
         //wp_redirect($authorizationUrl);
         header('Location: ' . $authorizationUrl, true, 302);
         exit;
-    } elseif (empty($_GET['state'])  && $_COOKIE['oauth2state'] !== $_GET['state']) {
-
-        wp_die('Invalid state');
+    } elseif (empty($_GET['state']) || get_option('oauth2state_' . $unique_id) !== $_GET['state']) {
+        ?>
+        <div style="font-family: Arial, sans-serif; margin: 20px; padding: 20px; border: 1px solid #f00; background-color: #fee;">
+            <h2 style="color: #f00;">Error: Invalid State</h2>
+            <p><strong>Unique ID:</strong> <?php echo htmlspecialchars($unique_id); ?></p>
+            <p><strong>Expected State:</strong> <?php echo htmlspecialchars(get_option('oauth2state_' . $unique_id)); ?></p>
+            <p><strong>Returned State:</strong> <?php echo htmlspecialchars($_GET['state']); ?></p>
+            <pre><?php print_r(getallheaders()); ?></pre>
+            <pre><?php print_r($_COOKIE)?></pre>
+        </div>
+        <?php
+        wp_die();
     } elseif (isset($_GET['error'])) {
-
         wp_die($_GET['error']);
     } else {
         try {
@@ -89,29 +128,36 @@ function oauth2_sso_handle_login()
             }
 
             foreach ($attributes as $attribute) {
-                //($attribute);
                 if (!empty($user_info[$attribute['oauth_attribute']])) {
-
                     // Update the user meta with the attribute value.
-                    update_user_meta($user->ID, $attribute['wp_attribute'],  $user_info[$attribute['oauth_attribute']]);
+                    update_user_meta($user->ID, $attribute['wp_attribute'], $user_info[$attribute['oauth_attribute']]);
                 }
             }
 
             wp_set_current_user($user->ID);
             wp_set_auth_cookie($user->ID);
-            wp_redirect( home_url() . '?finalurl=oauth2redirect&nonce=' . wp_create_nonce('oauth2redirect'));
-            exit;
+            $redirect_uri = get_option('oauth2redirect_' . $unique_id);
 
-        
+            # clean up login state and redirect
+            delete_option('oauth2redirect_' . $unique_id);
+            delete_option('oauth2state_' . $unique_id);
+            // Check if the redirect URI already has query parameters.
+            if (strpos($redirect_uri, '?') !== false) {
+                // Append the nonce as an additional query parameter.
+                $redirect_uri .= '&nonce=' . wp_create_nonce('oauth2redirect');
+            } else {
+                // Add the nonce as the first query parameter.
+                $redirect_uri .= '?nonce=' . wp_create_nonce('oauth2redirect');
+            }
+            wp_redirect($redirect_uri);
+            exit;
         } catch (\League\OAuth2\Client\Provider\Exception\IdentityProviderException $e) {
             // retry login
-            
-            $scopes = ['openid', 'profile',  'email']; // Update scopes here
-            $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes); 
+            $scopes = ['openid', 'profile', 'email']; // Update scopes here
+            $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
             header('Refresh: 5; Location: ' . $authorizationUrl, true);
             wp_die('Retrying Login - Error retrieving access token: ' . $e->getMessage());
         }
-        
     }
 }
 
@@ -124,7 +170,7 @@ function oauth2_sso_show_extra_profile_fields($user)
 {
     // Get the list of attributes to display.
     $wp_attributes = get_option('oauth2_sso_wp_attributes') ?: [];
-    ?>
+?>
     <h3>oAuth Profile attributes</h3>
     <?php
     // Display the attributes.

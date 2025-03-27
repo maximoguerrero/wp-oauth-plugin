@@ -41,7 +41,6 @@ function oauth2_sso_init()
 
 
     if (is_plugin_active(plugin_basename(OAUTH2_SSO_PLUGIN_DIR . 'oauth2-sso.php'))) {
-
         // Check if the user is attempting to log in via OAuth2.
         if (isset($_GET['oauth2_sso']) || isset($_GET['code']) || isset($_GET['error'])) {
             
@@ -52,52 +51,6 @@ function oauth2_sso_init()
 
             // Handle the login process.
             oauth2_sso_handle_login();
-        }else if (isset($_GET['finalurl']) ) {
-            
-            // set no cache headers
-            header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
-            header("Cache-Control: post-check=0, pre-check=0", false);
-            header("Pragma: no-cache");
-            
-            // Redirect to the login page.
-            $redirect_to = isset($_COOKIE['oauth2redirect']) ? $_COOKIE['oauth2redirect'] : home_url();
-
-
-            // Append no cache param with time() and uuid.
-            $uuid = uniqid();
-            $parsed_url = parse_url($redirect_to);
-            $query = isset($parsed_url['query']) ? $parsed_url['query'] : '';
-            parse_str($query, $query_params);
-            $query_params['nocache'] = time() . '_' . $uuid;
-            $redirect_to = $parsed_url['scheme'] . '://' . $parsed_url['host'] . $parsed_url['path'] . '?' . http_build_query($query_params);
-
-            //setcookie('oauth2redirect', '', time() - 3600, '/');
-            $current_user = wp_get_current_user();
-            if ($current_user->exists()) {
-                $name = $current_user->display_name;
-            } else {
-                $name = 'Guest';
-            }
-            //wp_redirect($redirect_to);
-            ?>
-                <html>
-                    <head>
-                       
-                    </head>
-                    <body>
-                        <p style="text-align: center;">
-                            You have been logged in (<?php echo $name?>).   Redirecting to <a href="<?php echo $redirect_to; ?>"><?php echo $redirect_to; ?></a>
-                        </p>
-                        <script>
-                            setTimeout(function() {
-                                window.location.href = "<?php echo $redirect_to ?>";
-                            }, 1000);
-                        </script>
-                    </body>
-                </html>
-            <?php
-
-            exit;
         }
         
         if (is_front_page() || is_home()) {
@@ -143,10 +96,7 @@ function get_current_url() {
 // Add a button to the login form.
 function oauth2_sso_add_login_button() {
     
-    // Start a session if one doesn't exist.
-    if (session_status() == PHP_SESSION_NONE) {
-        session_start();
-    }
+    
     // Save the 'redirect_to' query string to a variable if it exists.
     $redirect_to = isset($_GET['redirect_to']) ? "&redirect_uri=". esc_url($_GET['redirect_to']) : '';
 
@@ -195,6 +145,7 @@ function oauth2_sso_admin_menu()
 // Clear cookie on logout.
 function oauth2_sso_clear_cookie() {
     setcookie('oauth2state', '', time() - 3600, '/');
+    clear_oauth_user_cookie();
 }
 // Clear the cookie on logout.
 add_action('wp_logout', 'oauth2_sso_clear_cookie');
