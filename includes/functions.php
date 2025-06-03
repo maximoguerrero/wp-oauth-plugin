@@ -37,6 +37,12 @@ function get_oauth_user_cookie()
 
 function oauth2_sso_handle_login()
 {
+    
+    // Clean up old redirect options periodically
+    if (rand(1, 10) === 1) { // 10% chance to run cleanup
+        cleanup_old_oauth_redirect_options();
+    }
+    
     // Generate a unique identifier for the visitor.
     $unique_id = get_oauth_user_cookie();
 
@@ -187,4 +193,31 @@ function oauth2_sso_show_extra_profile_fields($user)
         </table>
 <?php
     }
+}
+
+function cleanup_old_oauth_redirect_options()
+{
+    global $wpdb;
+    
+    // Query all oauth2redirect_ options, ordered by option_id (creation order)
+    $results = $wpdb->get_results(
+        "SELECT option_name FROM {$wpdb->options} 
+         WHERE option_name LIKE 'oauth2redirect_%' 
+         ORDER BY option_id DESC",
+        ARRAY_A
+    );
+    
+    // If we have more than 10 options, delete the oldest ones
+    if (count($results) > 10) {
+        // Keep the first 10 (most recent), delete the rest
+        $options_to_delete = array_slice($results, 10);
+        
+        foreach ($options_to_delete as $option) {
+            delete_option($option['option_name']);
+        }
+        
+        return count($options_to_delete); // Return number of deleted options
+    }
+    
+    return 0; // No options deleted
 }
