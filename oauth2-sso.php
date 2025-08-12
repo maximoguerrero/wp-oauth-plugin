@@ -38,7 +38,10 @@ include_once(ABSPATH . 'wp-admin/includes/plugin.php');
 // Initialize plugin.
 function oauth2_sso_init()
 {
-
+    // Allow cron requests to pass through without any processing
+    if ((defined('DOING_CRON') && DOING_CRON) || (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'wp-cron.php') !== false)) {
+        return;
+    }
 
     if (is_plugin_active(plugin_basename(OAUTH2_SSO_PLUGIN_DIR . 'oauth2-sso.php'))) {
         // Check if the user is attempting to log in via OAuth2.
@@ -64,6 +67,11 @@ function oauth2_sso_init()
 
 function require_authentication()
 {
+    // Allow cron requests to pass through without forcing authentication
+    if ((defined('DOING_CRON') && DOING_CRON) || (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'wp-cron.php') !== false)) {
+        return;
+    }
+
     // Ignore requests to wp-cron.php.
     if (strpos($_SERVER['REQUEST_URI'], 'wp-cron.php') !== false) {
         return;
