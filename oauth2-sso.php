@@ -72,10 +72,6 @@ function require_authentication()
         return;
     }
 
-    // Ignore requests to wp-cron.php.
-    if (strpos($_SERVER['REQUEST_URI'], 'wp-cron.php') !== false) {
-        return;
-    }
     if (! is_user_logged_in()) {
 
        
