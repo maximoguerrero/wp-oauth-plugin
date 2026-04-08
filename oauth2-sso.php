@@ -30,6 +30,105 @@ require_once OAUTH2_SSO_PLUGIN_DIR . 'includes/settings.php';
 add_action('wp_loaded', 'require_authentication');
 add_action('init', 'oauth2_sso_init');
 add_action('admin_menu', 'oauth2_sso_admin_menu');
+register_activation_hook(__FILE__, 'oauth2_sso_activate');
+register_deactivation_hook(__FILE__, 'oauth2_sso_deactivate');
+
+/**
+ * On activation: clean up any legacy orphaned options and schedule
+ * the periodic expired-transient purge via WP-Cron.
+ */
+function oauth2_sso_activate()
+{
+    oauth2_sso_cleanup_orphaned_options();
+    if (!wp_next_scheduled('oauth2_sso_purge_expired_options')) {
+        wp_schedule_event(time(), 'hourly', 'oauth2_sso_purge_expired_options');
+    }
+}
+
+/**
+ * On deactivation: remove the scheduled cron event.
+ */
+function oauth2_sso_deactivate()
+{
+    $timestamp = wp_next_scheduled('oauth2_sso_purge_expired_options');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'oauth2_sso_purge_expired_options');
+    }
+    // Also unschedule legacy hook name from previous versions.
+    $legacy = wp_next_scheduled('oauth2_sso_purge_transients');
+    if ($legacy) {
+        wp_unschedule_event($legacy, 'oauth2_sso_purge_transients');
+    }
+}
+
+// For already-active installs: run the legacy options cleanup once and
+// register the cron if it hasn't been scheduled yet.
+add_action('admin_init', function () {
+    if (!get_option('oauth2_sso_orphan_cleanup_done')) {
+        oauth2_sso_cleanup_orphaned_options();
+        update_option('oauth2_sso_orphan_cleanup_done', true, false); // autoload=false
+    }
+    if (!wp_next_scheduled('oauth2_sso_purge_expired_options')) {
+        wp_schedule_event(time(), 'hourly', 'oauth2_sso_purge_expired_options');
+    }
+    // Remove legacy cron hook from transient era.
+    $legacy = wp_next_scheduled('oauth2_sso_purge_transients');
+    if ($legacy) {
+        wp_unschedule_event($legacy, 'oauth2_sso_purge_transients');
+    }
+});
+
+// Bind the cron event to the purge function.
+add_action('oauth2_sso_purge_expired_options', 'oauth2_sso_delete_expired_options');
+
+/**
+ * Delete any leftover oauth2 transient rows from wp_options
+ * that accumulated before the switch to direct options.
+ */
+function oauth2_sso_cleanup_orphaned_options()
+{
+    global $wpdb;
+    $wpdb->query(
+        "DELETE FROM {$wpdb->options}
+         WHERE option_name LIKE '_transient_oauth2state\_%'
+            OR option_name LIKE '_transient_timeout_oauth2state\_%'
+            OR option_name LIKE '_transient_oauth2redirect\_%'
+            OR option_name LIKE '_transient_timeout_oauth2redirect\_%'"
+    );
+}
+
+/**
+ * Delete expired oauth2state_* and oauth2redirect_* options from wp_options.
+ *
+ * Each oauth2state_{id} option stores a serialised array with an 'expires'
+ * timestamp. Options past their expiry (and the matching redirect option)
+ * are removed.
+ */
+function oauth2_sso_delete_expired_options()
+{
+    global $wpdb;
+
+    // Fetch all oauth2state_ options.
+    $rows = $wpdb->get_results(
+        "SELECT option_name, option_value
+         FROM {$wpdb->options}
+         WHERE option_name LIKE 'oauth2state\_%'"
+    );
+
+    $now = time();
+    foreach ($rows as $row) {
+        $data = maybe_unserialize($row->option_value);
+        $expires = is_array($data) && isset($data['expires']) ? (int) $data['expires'] : 0;
+
+        // Delete if expired or if the data is not in the expected format
+        // (legacy plain-string values from before the migration).
+        if ($expires < $now) {
+            $session_id = str_replace('oauth2state_', '', $row->option_name);
+            delete_option('oauth2state_' . $session_id);
+            delete_option('oauth2redirect_' . $session_id);
+        }
+    }
+}
 
 
 
@@ -67,16 +166,33 @@ function oauth2_sso_init()
 
 function require_authentication()
 {
-    // Allow cron requests to pass through without forcing authentication
+    // Allow cron requests to pass through without forcing authentication.
     if ((defined('DOING_CRON') && DOING_CRON) || (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'wp-cron.php') !== false)) {
+        return;
+    }
+
+    // Allow AJAX / REST requests through.
+    if (defined('DOING_AJAX') && DOING_AJAX) {
+        return;
+    }
+    if (defined('REST_REQUEST') && REST_REQUEST) {
+        return;
+    }
+
+    // Never redirect if this is already an OAuth callback or login flow;
+    // oauth2_sso_init() on 'init' handles these — we must not re-redirect.
+    if (isset($_GET['oauth2_sso']) || isset($_GET['code']) || isset($_GET['error']) || isset($_GET['state'])) {
+        return;
+    }
+
+    // Let the standard wp-login.php page load normally.
+    if (strpos($_SERVER['REQUEST_URI'], 'wp-login.php') !== false) {
         return;
     }
 
     if (! is_user_logged_in()) {
 
-       
-
-        // redirecto to touchstone directly.
+        // Redirect to OAuth provider directly.
         $redirect_uri = get_option('oauth2_sso_redirect_uri');
         if ($redirect_uri && ! empty($redirect_uri)) {
             header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -154,12 +270,38 @@ function oauth2_sso_admin_menu()
         'oauth2-sso',
         'oauth2_sso_settings_page'
     );
+    add_submenu_page(
+        'options-general.php',
+        'OAuth2 SSO Sessions',
+        'OAuth2 Sessions',
+        'manage_options',
+        'oauth2-sso-sessions',
+        'oauth2_sso_sessions_page'
+    );
+}
+
+// Handle the manual purge form submission.
+add_action('admin_post_oauth2_sso_purge_transients', 'oauth2_sso_handle_purge');
+function oauth2_sso_handle_purge()
+{
+    check_admin_referer('oauth2_sso_purge_transients');
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized', 403);
+    }
+    oauth2_sso_delete_expired_options();
+    wp_redirect(add_query_arg(
+        ['page' => 'oauth2-sso-sessions', 'purged' => '1'],
+        admin_url('options-general.php')
+    ));
+    exit;
 }
 
 // Clear cookie on logout.
 function oauth2_sso_clear_cookie()
 {
-    setcookie('oauth2state', '', time() - 3600, '/');
+    $unique_id = get_oauth_user_cookie();
+    delete_option('oauth2state_' . $unique_id);
+    delete_option('oauth2redirect_' . $unique_id);
     clear_oauth_user_cookie();
 }
 // Clear the cookie on logout.
