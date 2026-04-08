@@ -5,6 +5,7 @@ use League\OAuth2\Client\Provider\GenericProvider;
 
 function get_auth_cookie_name()
 {
+    // WP Engine & Cloudflare pass through cookies prefixed with "wordpress_".
     return 'wordpress_oauth2_sso_user';
 }
 function set_oauth_user_cookie()
@@ -13,7 +14,13 @@ function set_oauth_user_cookie()
     if (!isset($_COOKIE[get_auth_cookie_name()])) {
         // Generate a new unique ID and set the cookie if it doesn't exist.
         $unique_id = bin2hex(random_bytes(16));
-        setcookie(get_auth_cookie_name(), $unique_id, time() + (86400 * 30), '/');
+        setcookie(get_auth_cookie_name(), $unique_id, [
+            'expires'  => time() + (86400 * 30),
+            'path'     => '/',
+            'secure'   => is_ssl(),
+            'httponly'  => true,
+            'samesite' => 'Lax',
+        ]);
         $_COOKIE[get_auth_cookie_name()] = $unique_id; // Make immediately available
         return $unique_id;
     }
@@ -23,7 +30,13 @@ function set_oauth_user_cookie()
 function clear_oauth_user_cookie()
 {
     if (isset($_COOKIE[get_auth_cookie_name()])) {
-        setcookie(get_auth_cookie_name(), '', time() - 3600); // Expire the cookie
+        setcookie(get_auth_cookie_name(), '', [
+            'expires'  => time() - 3600,
+            'path'     => '/',
+            'secure'   => is_ssl(),
+            'httponly'  => true,
+            'samesite' => 'Lax',
+        ]);
     }
 }
 
@@ -37,12 +50,6 @@ function get_oauth_user_cookie()
 
 function oauth2_sso_handle_login()
 {
-    
-    // Clean up old redirect options periodically
-    if (rand(1, 10) === 1) { // 10% chance to run cleanup
-        cleanup_old_oauth_redirect_options();
-    }
-    
     // Generate a unique identifier for the visitor.
     $unique_id = get_oauth_user_cookie();
 
@@ -74,30 +81,48 @@ function oauth2_sso_handle_login()
         
         
         if (isset($_GET['redirect_uri'])) {
-            update_option('oauth2redirect_' . $unique_id, $_GET['redirect_uri']);
+            update_option('oauth2redirect_' . $unique_id, $_GET['redirect_uri'], false);
         }
         // Step 1: Redirect to the OAuth2 server.
         $scopes = ['openid', 'profile', 'email']; // Update scopes here
         $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
 
-        update_option('oauth2state_' . $unique_id, $provider->getState());
+        // Store state in wp_options with autoload=false + embedded expiry.
+        // We avoid transients because WP Engine's object cache (Redis) can
+        // evict them before the OAuth round-trip completes.
+        update_option('oauth2state_' . $unique_id, [
+            'state'   => $provider->getState(),
+            'expires' => time() + 600, // 10 minutes
+        ], false);
         //wp_redirect($authorizationUrl);
         header('Location: ' . $authorizationUrl, true, 302);
         exit;
-    } elseif (empty($_GET['state']) || get_option('oauth2state_' . $unique_id) !== $_GET['state']) {
+    }
+
+    // Retrieve stored state data from wp_options.
+    $state_data    = get_option('oauth2state_' . $unique_id);
+    $stored_state  = is_array($state_data) ? ($state_data['state'] ?? '') : '';
+    $state_expired = is_array($state_data) && isset($state_data['expires']) && $state_data['expires'] < time();
+
+    if (isset($_GET['error'])) {
+        delete_option('oauth2state_' . $unique_id);
+        delete_option('oauth2redirect_' . $unique_id);
+        wp_die($_GET['error']);
+    } elseif (empty($_GET['state']) || !$stored_state || $stored_state !== $_GET['state'] || $state_expired) {
         ?>
         <div style="font-family: Arial, sans-serif; margin: 20px; padding: 20px; border: 1px solid #f00; background-color: #fee;">
             <h2 style="color: #f00;">Error: Invalid State</h2>
             <p><strong>Unique ID:</strong> <?php echo htmlspecialchars($unique_id); ?></p>
-            <p><strong>Expected State:</strong> <?php echo htmlspecialchars(get_option('oauth2state_' . $unique_id)); ?></p>
+            <p><strong>Expected State:</strong> <?php echo htmlspecialchars($stored_state); ?></p>
+            <p><strong>State Expired:</strong> <?php echo $state_expired ? 'Yes' : 'No'; ?></p>
             <p><strong>Returned State:</strong> <?php echo htmlspecialchars($_GET['state']); ?></p>
             <pre><?php print_r(getallheaders()); ?></pre>
             <pre><?php print_r($_COOKIE)?></pre>
         </div>
         <?php
+        delete_option('oauth2state_' . $unique_id);
+        delete_option('oauth2redirect_' . $unique_id);
         wp_die();
-    } elseif (isset($_GET['error'])) {
-        wp_die($_GET['error']);
     } else {
         try {
             // Step 2: Exchange the authorization code for an access token.
@@ -158,6 +183,8 @@ function oauth2_sso_handle_login()
             wp_redirect($redirect_uri);
             exit;
         } catch (\League\OAuth2\Client\Provider\Exception\IdentityProviderException $e) {
+            delete_option('oauth2state_' . $unique_id);
+            delete_option('oauth2redirect_' . $unique_id);
             // retry login
             $scopes = ['openid', 'profile', 'email']; // Update scopes here
             $authorizationUrl = $provider->getAuthorizationUrl() . '&scope=' . implode(' ', $scopes);
@@ -193,31 +220,4 @@ function oauth2_sso_show_extra_profile_fields($user)
         </table>
 <?php
     }
-}
-
-function cleanup_old_oauth_redirect_options()
-{
-    global $wpdb;
-    
-    // Query all oauth2redirect_ options, ordered by option_id (creation order)
-    $results = $wpdb->get_results(
-        "SELECT option_name FROM {$wpdb->options} 
-         WHERE option_name LIKE 'oauth2redirect_%' 
-         ORDER BY option_id DESC",
-        ARRAY_A
-    );
-    
-    // If we have more than 10 options, delete the oldest ones
-    if (count($results) > 10) {
-        // Keep the first 10 (most recent), delete the rest
-        $options_to_delete = array_slice($results, 10);
-        
-        foreach ($options_to_delete as $option) {
-            delete_option($option['option_name']);
-        }
-        
-        return count($options_to_delete); // Return number of deleted options
-    }
-    
-    return 0; // No options deleted
 }

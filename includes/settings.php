@@ -3,6 +3,116 @@
 // Register settings.
 add_action('admin_init', 'oauth2_sso_register_settings');
 
+function oauth2_sso_sessions_page()
+{
+    global $wpdb;
+
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+
+    // Fetch all oauth2state_ options (each stores ['state'=>..., 'expires'=>...]).
+    $rows = $wpdb->get_results(
+        "SELECT
+            REPLACE(option_name, 'oauth2state_', '') AS session_id,
+            option_value
+         FROM {$wpdb->options}
+         WHERE option_name LIKE 'oauth2state\_%'
+         ORDER BY option_id DESC"
+    );
+
+    $now = time();
+    $expired_count = 0;
+    // Enrich rows with parsed expiry.
+    foreach ($rows as $row) {
+        $data = maybe_unserialize($row->option_value);
+        $row->expires_at = is_array($data) && isset($data['expires']) ? (int) $data['expires'] : 0;
+        if ($row->expires_at < $now) {
+            $expired_count++;
+        }
+    }
+?>
+    <div class="wrap">
+        <h1>OAuth2 SSO &mdash; Active Sessions</h1>
+
+        <?php if (isset($_GET['purged'])) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Expired options purged successfully.</p>
+            </div>
+        <?php endif; ?>
+
+        <p>
+            These are pending OAuth2 login flows (state options still present in the database).
+            Each row represents a browser that started the login process but has not yet completed or timed out.
+            Options expire after <strong>10 minutes</strong>; expired rows are cleaned up
+            by the hourly cron or by clicking <em>Purge Expired</em> below.
+        </p>
+
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-bottom:16px;">
+            <input type="hidden" name="action" value="oauth2_sso_purge_transients">
+            <?php wp_nonce_field('oauth2_sso_purge_transients'); ?>
+            <?php submit_button(
+                sprintf('Purge Expired (%d)', $expired_count),
+                $expired_count > 0 ? 'secondary' : 'secondary',
+                'submit',
+                false,
+                $expired_count === 0 ? ['disabled' => 'disabled'] : []
+            ); ?>
+        </form>
+
+        <?php if (empty($rows)) : ?>
+            <p><em>No pending session options found.</em></p>
+        <?php else : ?>
+            <table class="widefat striped" style="max-width:900px;">
+                <thead>
+                    <tr>
+                        <th>Session ID (cookie)</th>
+                        <th>Has Redirect Target</th>
+                        <th>Expires At</th>
+                        <th>TTL / Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($rows as $row) :
+                        $ttl        = $row->expires_at - $now;
+                        $expired    = $ttl <= 0;
+                        $has_redirect = (bool) $wpdb->get_var(
+                            $wpdb->prepare(
+                                "SELECT COUNT(*) FROM {$wpdb->options}
+                                 WHERE option_name = %s",
+                                'oauth2redirect_' . $row->session_id
+                            )
+                        );
+
+                        if ($expired) {
+                            $ttl_label = '<span style="color:#b32d2e;">Expired ' . human_time_diff($row->expires_at, $now) . ' ago</span>';
+                            $row_style = 'opacity:.65;';
+                        } else {
+                            $mins = floor($ttl / 60);
+                            $secs = $ttl % 60;
+                            $ttl_label = '<span style="color:#0a6b1e;">Active &mdash; ' . $mins . 'm ' . $secs . 's remaining</span>';
+                            $row_style = '';
+                        }
+                    ?>
+                        <tr style="<?php echo $row_style; ?>">
+                            <td><code><?php echo esc_html(substr($row->session_id, 0, 12) . '&hellip;'); ?></code></td>
+                            <td><?php echo $has_redirect ? '<span style="color:#0a6b1e;">&#10003; Yes</span>' : '<span style="color:#888;">&#8212; No</span>'; ?></td>
+                            <td><?php echo esc_html(date('Y-m-d H:i:s', $row->expires_at)); ?></td>
+                            <td><?php echo $ttl_label; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p style="color:#888;font-size:12px;">
+                Showing <?php echo count($rows); ?> session(s) &mdash;
+                <?php echo $expired_count; ?> expired,
+                <?php echo count($rows) - $expired_count; ?> active.
+            </p>
+        <?php endif; ?>
+    </div>
+<?php
+}
+
 // Add settings page to the admin menu.
 function oauth2_sso_register_settings()
 {
